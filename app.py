@@ -1,14 +1,21 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from pymilvus import connections
+import json
+import typing
+
+
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional
+
+
 
 app = FastAPI()
 
 # Route for uploading files
-@app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
+@app.post("/run/")
+async def run(config):
     try:
-        # You can now save the file, process it, etc. Here's a simple placeholder response.
+
         return {"filename": file.filename}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -22,5 +29,15 @@ async def query_item(q: Optional[str] = None):
     else:
         return {"error": "Query parameter 'q' is missing"}
 
+def main():
+    import sys
+    # collection_name = sys.argv[1]
+    embeddings = OpenAIEmbeddings(openai_api_key=openai_key)
+    collection_name = f"demo_collection"
+    query = sys.argv[1]
+    print(query_db(collection_name, query, embeddings))
 
 
+
+if __name__ == '__main__':
+    main()
