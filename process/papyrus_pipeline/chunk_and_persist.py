@@ -2,6 +2,7 @@ import json
 import os
 import time
 import typing
+from collections import defaultdict
 
 from langchain.text_splitter import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Milvus
@@ -66,22 +67,6 @@ def index_docs(collection_name: str, docs: typing.List[Document], embeddings, co
     chunk_and_persist(collection_name, chunked_docs, connection_args=config.connection_args, embeddings=embeddings)
 
 
-def query_db(collection_name: str, query: str, embeddings, config: PapyrusConfig):
-    vector_db = load_db(collection_name, embeddings, config.connection_args)
-    llm = OpenAI(temperature=0, openai_api_key=config.openai_key)
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=vector_db.as_retriever(search_kwargs={'k': 5}),
-        verbose=True,
-        chain_type_kwargs={
-            "verbose": True
-        })
-    return qa.invoke(query)
-
-
-from collections import defaultdict
-
 def score2_sub(a, b):
     word_a = a.split()
     word_b = set(b.split())
@@ -117,5 +102,5 @@ def index(collection_name: str, doc_path: str, config: PapyrusConfig):
             print(f"Reading {f_name}")
             doc_contents = f.read()
             docs.append(Document(page_content=doc_contents))
-    index_docs(collection_name, docs, embeddings)
+    index_docs(collection_name, docs, embeddings, config)
     print("Indexed")

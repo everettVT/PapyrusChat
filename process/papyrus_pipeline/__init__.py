@@ -1,1 +1,1 @@
-from config import PapyrusConfig
+from .config import PapyrusConfig

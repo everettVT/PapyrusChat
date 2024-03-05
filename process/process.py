@@ -1,12 +1,13 @@
-from Katna.image_filters.text_detector import TextDetector
-from Katna.video import Video
-from Katna.writer import KeyFrameDiskWriter
+import argparse
 import os
 import re
 import sys
 import typing
 import time 
 
+from Katna.image_filters.text_detector import TextDetector
+from Katna.video import Video
+from Katna.writer import KeyFrameDiskWriter
 import Katna.helper_functions as helper
 
 from llama_index.core import (
@@ -32,7 +33,7 @@ from PIL import Image
 import pytesseract
 
 from papyrus_pipeline.chunk_and_persist import index
-from papyrus_pipeline.chunk_and_persist import PapyrusConfig
+from papyrus_pipeline import PapyrusConfig
 
 
 def extract(video_file_path: str, num_frames: int, output_path: str):
@@ -45,9 +46,6 @@ def extract(video_file_path: str, num_frames: int, output_path: str):
         writer=diskwriter
     )
 
-def ingest(text: str):
-    pass
-
 
 def ocr(img_paths: typing.List[str], config: PapyrusConfig):
     # use a local lib for some initial quality validation before sending to openai
@@ -59,51 +57,59 @@ def ocr(img_paths: typing.List[str], config: PapyrusConfig):
         model="gpt-4-vision-preview", api_key=config.openai_key, max_new_tokens=1500
     )
     for image_doc in image_documents:
-        try:
-            response_1 = openai_mm_llm.complete(
-                prompt="Perform OCR on the pages shown. Only provide text from the images in the response. Give the response as json, with the text under a key called output",
-                image_documents=[image_doc],
-            )
-            # print(response_1)
-            json_txt = response_1.text.replace('```', '').replace("\'", '')
-            json_txt = json_txt.replace('\\n', ' ').replace('\\\\n', ' ')
-            json_txt = re.findall(r'.*output["\']\s*:\s*([^}]+)', json_txt)
-            print(json_txt)
-            if len(json_txt[0].strip()) > 5:
-                responses.append(json_txt[0])
-        except Exception as e:
-            print(e)
+        # TODO: handle exception and retry
+        response_1 = openai_mm_llm.complete(
+            prompt="Perform OCR on the pages shown. Only provide text from the images in the response. Give the response as json, with the text under a key called output",
+            image_documents=[image_doc],
+        )
+        # print(response_1)
+        json_txt = response_1.text.replace('```', '').replace("\'", '')
+        json_txt = json_txt.replace('\\n', ' ').replace('\\\\n', ' ')
+        json_txt = re.findall(r'.*output["\']\s*:\s*([^}]+)', json_txt)
+        print(json_txt)
+        if len(json_txt) > 0 and len(json_txt[0].strip()) > 5:
+            responses.append(json_txt[0])
     return responses
 
 
-def process(video_file_path: str, output_dir: str):
-        # assume like 0.70 flips per second
-        vid_info = helper.get_video_info(video_file_path)
-        num_frames = int(vid_info[1] * 0.70)
-        extract(video_file_path, num_frames, output_dir)
-        ocr_op = ocr(output_dir)
-        print(ocr_op)
+def process(video_file_path: str, output_dir: str, config: PapyrusConfig) -> str:
+    # assume like 0.70 flips per second
+    vid_info = helper.get_video_info(video_file_path)
+    num_frames = int(vid_info[1] * 0.70)
+    extract(video_file_path, num_frames, output_dir)
+    ocr_op = ocr(output_dir, config)
+    print(ocr_op)
 
-        txt_dir = f"{output_dir}/text/"
-        os.makedirs(txt_dir, exist_ok=True)
-        for i, s in enumerate(ocr_op):
-            with open(os.path.join(txt_dir, f"{i}.txt"), mode='wt') as f:
-                f.write(s)
-        print(txt_dir)
+    txt_dir = f"{output_dir}/text/"
+    os.makedirs(txt_dir, exist_ok=True)
+    for i, s in enumerate(ocr_op):
+        with open(os.path.join(txt_dir, f"{i}.txt"), mode='wt') as f:
+            f.write(s)
+    return txt_dir
 
 
 def main():
+    # TODO: take metadtaa files as input, containign author, file name, book name, etc
     config = PapyrusConfig("config.yaml")
-    vid_dir = sys.argv[1]
-    output_dir = sys.argv[2]
-    processed_video_file_path = os.path.join(sys.argv[3])
+    vid_dir = config.video_file_dir
+    output_dir = config.output_dir
+    processed_video_dir_path = config.processed_video_dir_path
+    # TODO: get from metadata
+    author_name: str = "author"
+    for p in [vid_dir, output_dir, processed_video_dir_path]:
+        os.makedirs(p, exist_ok=True)
     while True:
         # look for any files in the directory
         for vid_name in os.listdir(vid_dir):
             video_file_path = os.path.join(vid_dir, vid_name)
-            process(video_file_path, output_dir)
-
-
+            temp_output_dir = os.path.join(output_dir, str(int(time.time())))
+            txt_dir = process(video_file_path, temp_output_dir, config)
+            # move to the other folder when done
+            os.rename(video_file_path, os.path.join(processed_video_dir_path, vid_name))
+            # TODO: take that metdata, create a per-author index
+            index(collection_name=author_name, doc_path=txt_dir, config=config)
+            # TODO publish it's done
+        time.sleep(10)
 
 
 if __name__ == "__main__":
