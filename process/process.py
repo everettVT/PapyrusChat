@@ -31,11 +31,8 @@ from PIL import Image
 
 import pytesseract
 
-
-with open("config.yaml") as f:
-    config = yaml.safe_load(f)
-
-openai_key = config['openai']['key']
+from papyrus_pipeline.chunk_and_persist import index
+from papyrus_pipeline.chunk_and_persist import PapyrusConfig
 
 
 def extract(video_file_path: str, num_frames: int, output_path: str):
@@ -52,14 +49,14 @@ def ingest(text: str):
     pass
 
 
-def ocr(img_paths: typing.List[str]):
+def ocr(img_paths: typing.List[str], config: PapyrusConfig):
     # use a local lib for some initial quality validation before sending to openai
 
     image_documents = SimpleDirectoryReader(img_paths).load_data()
     responses = []
 
     openai_mm_llm = OpenAIMultiModal(
-        model="gpt-4-vision-preview", api_key=openai_key, max_new_tokens=1500
+        model="gpt-4-vision-preview", api_key=config.openai_key, max_new_tokens=1500
     )
     for image_doc in image_documents:
         try:
@@ -94,7 +91,9 @@ def process(video_file_path: str, output_dir: str):
                 f.write(s)
         print(txt_dir)
 
+
 def main():
+    config = PapyrusConfig("config.yaml")
     vid_dir = sys.argv[1]
     output_dir = sys.argv[2]
     processed_video_file_path = os.path.join(sys.argv[3])
@@ -103,6 +102,7 @@ def main():
         for vid_name in os.listdir(vid_dir):
             video_file_path = os.path.join(vid_dir, vid_name)
             process(video_file_path, output_dir)
+
 
 
 
