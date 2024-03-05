@@ -1,0 +1,8 @@
+milvus:
+  host: localhost
+  port: 19530
+openai:
+  key: "<YOUR KEY>"
+video_file_dir: "videos"
+output_dir: "videos_output"
+processed_video_dir_path: "processedvideos/"
