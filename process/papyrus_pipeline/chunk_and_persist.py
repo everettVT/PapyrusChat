@@ -4,67 +4,40 @@ import time
 import typing
 from collections import defaultdict
 
-from langchain.text_splitter import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Milvus
-from langchain_openai import OpenAI
-from langchain_openai import OpenAIEmbeddings
-from langchain.retrievers.self_query.base import SelfQueryRetriever
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Document
+
 from langchain.chains.query_constructor.base import AttributeInfo
 from pymilvus import connections, utility
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_core.documents import BaseDocumentTransformer, Document
-from langchain.chains import RetrievalQA
-
-from milvus import MilvusServer, MilvusServerConfig
-
-import yaml
 
 from sklearn.feature_extraction.text import TfidfVectorizer
+
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.vector_stores.milvus import MilvusVectorStore
+from llama_index.core import StorageContext
+import openai
 
 from papyrus_pipeline import PapyrusConfig
 
 
-def chunk_and_persist(collection_name: str, docs_list: typing.List[Document], connection_args: typing.Mapping[str, str], embeddings):
-    return Milvus.from_documents(
+def index_docs(docs_list: typing.List[Document], embed_model: BaseEmbedding, chunk_size: int, storage_context: StorageContext):
+    node_parser = SentenceSplitter(chunk_size=chunk_size)
+    nodes = node_parser.get_nodes_from_documents(docs_list)
+    for node in nodes:
+        node_embedding = embed_model.get_text_embedding(
+            node.get_content(metadata_mode="all")
+        )
+        node.embedding = node_embedding
+
+    return VectorStoreIndex.from_documents(
         documents=docs_list,
-        embedding=embeddings,
-        # drop_old=True,
-        connection_args=connection_args,
-        collection_name=collection_name)
+        storage_context=storage_context)
 
 
 def drop_collection(collection_name: str, config: PapyrusConfig):
     connections.connect(alias="del", address=config.milvus_address)
-    # connections.connect("del",
-    #                 uri=milvus_endpoint,
-    #                 token=zilliz_api_key)
     utility.drop_collection(collection_name, using="del")
-
-
-def chunk_text(docs: typing.List[Document], chunk_size: int, chunk_overlap: int):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    return text_splitter.split_documents(docs)
-
-
-def load_db(collection_name: str, embeddings, connection_args: typing.Mapping[str, str]):
-    vector_db = Milvus(
-        embeddings,
-        connection_args=connection_args,
-        collection_name=collection_name,
-    )
-    return vector_db
-
-
-
-def index_docs_at_path(collection_name: str, dir_path: str, embeddings):
-    loader = DirectoryLoader(dir_path, glob="**/*.txt")
-    docs = loader.load()
-    index_docs(collection_name, docs, embeddings)
-
-
-def index_docs(collection_name: str, docs: typing.List[Document], embeddings, config: PapyrusConfig):
-    chunked_docs = chunk_text(docs, chunk_size=512, chunk_overlap=0)
-    chunk_and_persist(collection_name, chunked_docs, connection_args=config.connection_args, embeddings=embeddings)
 
 
 def score2_sub(a, b):
@@ -78,8 +51,10 @@ def score2_sub(a, b):
 
     return sum(d.values()) / len(word_a)
 
+
 def score2_m(a, b):
     return max(score2_sub(a,b), score2_sub(b,a))
+
 
 def score2(docs):
     scores = [None] * len(docs)
@@ -91,16 +66,18 @@ def score2(docs):
     return scores
 
 
-def index(collection_name: str, doc_path: str, config: PapyrusConfig):
-    import sys
-    # drop_collection(collection_name)
-    embeddings = OpenAIEmbeddings(openai_api_key=config.openai_key)
+def index(collection_name: str, doc_path: str, metadata: typing.Mapping[str, str], config: PapyrusConfig):
+    openai.api_key = config.openai_key
+    vector_store = MilvusVectorStore(dim=1536, overwrite=False, uri=config.milvus_address, collection_name=collection_name)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    embed_model = OpenAIEmbedding(api_key=config.openai_key)
     file_names = os.listdir(doc_path)
     docs = []
     for f_name in file_names:
         with open(os.path.join(doc_path, f_name), mode='rt', encoding='utf8') as f:
             print(f"Reading {f_name}")
             doc_contents = f.read()
-            docs.append(Document(page_content=doc_contents))
-    index_docs(collection_name, docs, embeddings, config)
+            doc = Document(text=doc_contents, metadata=metadata)
+            docs.append(doc)
+    index_docs(docs, embed_model, chunk_size=256, storage_context=storage_context)
     print("Indexed")

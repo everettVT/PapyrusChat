@@ -98,6 +98,7 @@ def main():
     author_name: str = "author"
     for p in [vid_dir, output_dir, processed_video_dir_path]:
         os.makedirs(p, exist_ok=True)
+
     while True:
         # look for any files in the directory
         for vid_name in os.listdir(vid_dir):
@@ -107,7 +108,7 @@ def main():
             # move to the other folder when done
             os.rename(video_file_path, os.path.join(processed_video_dir_path, vid_name))
             # TODO: take that metdata, create a per-author index
-            index(collection_name=author_name, doc_path=txt_dir, config=config)
+            index(collection_name=author_name, doc_path=txt_dir, config=config, metadata={})
             # TODO publish it's done
         time.sleep(10)
 

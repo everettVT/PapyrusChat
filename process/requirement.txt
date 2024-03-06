@@ -1,1 +1,14 @@
 katna
+PyYAML
+llama-index
+llama-index-embeddings-openai
+pymilvus
+matplotlib
+milvus
+
+#langchain
+#langchain_openai
+#llama-index-multi-modal-llms-gemini
+#llama-index-vector-stores-qdrant
+#llama-index-embeddings-gemini
+#llama-index-llms-gemini
